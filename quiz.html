@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quiz o Warmii i Mazurach – Koło Fortuny</title>
+  <style>
+    :root {
+      --bg:#0b132b; --card:#1c2541; --acc:#5bc0be; --text:#e6e6e6; --muted:#a8b2d1;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;background:linear-gradient(135deg,#0b132b,#1c2541);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
+    .app{max-width:1100px;width:100%;padding:24px}
+    .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:24px}
+    @media (max-width:980px){.grid{grid-template-columns:1fr}}
+    .card{background:rgba(255,255,255,0.06);backdrop-filter: blur(8px);border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 6px;font-weight:800;letter-spacing:.2px}
+    .sub{color:var(--muted);margin-bottom:16px}
+
+    /* Wheel */
+    .wheel-wrap{display:flex;align-items:center;justify-content:center;position:relative}
+    #wheel{width:100%;max-width:520px;aspect-ratio:1;border-radius:50%;border:10px solid rgba(255,255,255,.15);background:#111;display:block}
+    .pointer{position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:16px solid transparent;border-right:16px solid transparent;border-bottom:28px solid var(--acc);filter:drop-shadow(0 4px 6px rgba(0,0,0,.4))}
+    .spin-btn{margin-top:14px;width:100%;padding:14px 16px;border-radius:12px;border:0;background:var(--acc);color:#062c30;font-weight:800;cursor:pointer;font-size:18px}
+    .spin-btn[disabled]{opacity:.5;cursor:not-allowed}
+
+    /* Q&A */
+    .qa h2{margin:.2rem 0 .6rem}
+    .opt{display:block;margin:.4rem 0;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.15);cursor:pointer}
+    .opt.correct{border-color:#22c55e;background:rgba(34,197,94,.12)}
+    .opt.wrong{border-color:#ef4444;background:rgba(239,68,68,.12)}
+    .meta{display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:14px;margin-top:8px}
+
+    .stats{display:flex;gap:12px;flex-wrap:wrap}
+    .pill{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:6px 10px;border-radius:999px;font-size:14px}
+
+    .win{border:2px dashed var(--acc);padding:14px;border-radius:14px;margin-top:12px;background:rgba(91,192,190,.08)}
+    .coupon{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-weight:800;letter-spacing:.08em}
+
+    .small{font-size:13px;color:var(--muted)}
+    .footer{margin-top:10px}
+    a{color:var(--acc)}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="card" style="margin-bottom:16px">
+      <h1>Quiz o Warmii i Mazurach – Koło Fortuny</h1>
+      <div class="sub">Zakręć kołem, wylosuj kategorię i odpowiedz na pytanie. Zdobądź <strong>3 poprawne odpowiedzi</strong> – odblokujesz kupon nagrody 🎁</div>
+      <div class="stats">
+        <div class="pill">Poprawne: <span id="ok">0</span>/3</div>
+        <div class="pill">Niepoprawne: <span id="bad">0</span></div>
+        <div class="pill">Runda: <span id="round">1</span></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="wheel-wrap">
+          <canvas id="wheel"></canvas>
+          <div class="pointer"></div>
+        </div>
+        <button id="spin" class="spin-btn">Zakręć kołem</button>
+        <div class="small footer">Kategorie: <span id="cats"></span></div>
+      </div>
+
+      <div class="card qa">
+        <h2 id="catTitle">Wylosuj kategorię…</h2>
+        <div id="question">Kliknij „Zakręć kołem”, aby rozpocząć.</div>
+        <div id="options"></div>
+        <div class="meta" id="meta"></div>
+        <div id="win" class="win" style="display:none">
+          <div style="font-weight:800;font-size:18px">Gratulacje! Masz 3 poprawne odpowiedzi 🎉</div>
+          <div>Odbierz nagrodę: <span class="coupon" id="coupon"></span></div>
+          <button id="copy" class="spin-btn" style="margin-top:10px;width:auto;padding:10px 14px;font-size:16px">Kopiuj kod</button>
+          <div class="small">Pokaż kod przy odbiorze nagrody.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="small" style="margin-top:10px;opacity:.8">
+      <strong>Uwaga organizatora:</strong> Pytania i odpowiedzi możesz łatwo edytować w sekcji <code>QUESTION_BANK</code> w źródle tej strony. Plik jest samowystarczalny – wystarczy wrzucić na dowolny hosting (np. GitHub Pages, Netlify) i udostępnić link.
+    </div>
+  </div>
+
+  <script>
+    /* =============================
+       KONFIGURACJA PYTAŃ/ODP.
+       ============================= */
+    const CATEGORIES = [
+      { key: 'jeziora', label: 'Jeziora' },
+      { key: 'zabytki', label: 'Zabytki' },
+      { key: 'liczby', label: 'Liczby' },
+      { key: 'przyroda', label: 'Przyroda' },
+      { key: 'miasta', label: 'Miasta i historia' },
+    ];
+
+    const QUESTION_BANK = {
+      jeziora: [
+        {
+          q: 'Największe jezioro w Polsce, położone na Mazurach, to…',
+          opts: ['Mamry', 'Śniardwy', 'Niegocin', 'Tałty'],
+          correct: 1,
+          info: 'Śniardwy mają ok. 113,8 km² powierzchni.'
+        },
+        {
+          q: 'Najdłuższe jezioro w Polsce leżące w Iławie to…',
+          opts: ['Jeziorak', 'Łańskie', 'Wigry', 'Hańcza'],
+          correct: 0,
+          info: 'Jeziorak ma ok. 27,5 km długości (woj. warmińsko‑mazurskie).'
+        },
+        {
+          q: 'Które miasto na Mazurach bywa nazywane „stolicą żeglarstwa”?',
+          opts: ['Mikołajki', 'Giżycko', 'Mrągowo', 'Ruciane‑Nida'],
+          correct: 1,
+          info: 'Giżycko – położone między Niegocinem a Kisajnem.'
+        },
+        {
+          q: 'Przez które jeziora prowadzi słynny szlak Wielkich Jezior Mazurskich?',
+          opts: ['Śniardwy–Mikołajskie–Niegocin', 'Wigry–Mamry–Roś', 'Hańcza–Tałty–Ukiel', 'Łebsko–Gardno–Jamno'],
+          correct: 0,
+          info: 'To trzon żeglarskiego serca regionu.'
+        },
+      ],
+      zabytki: [
+        {
+          q: 'Siedziba biskupów warmińskich – gotycki zamek krzyżacki – znajduje się w…',
+          opts: ['Lidzbarku Warmińskim', 'Reszlu', 'Nidzicy', 'Kętrzynie'],
+          correct: 0,
+          info: 'Zamek w Lidzbarku Warmińskim to perła gotyku.'
+        },
+        {
+          q: 'Zespół katedralny związany z Mikołajem Kopernikiem znajduje się w…',
+          opts: ['Fromborku', 'Olsztynie', 'Elblągu', 'Pasłęku'],
+          correct: 0,
+          info: 'We Fromborku Kopernik żył i pracował.'
+        },
+        {
+          q: '„Wilczy Szaniec” – dawna kwatera główna – leży w…',
+          opts: ['Gierłoży', 'Rynie', 'Srokowie', 'Świętej Lipce'],
+          correct: 0,
+          info: 'Gierłoż, koło Kętrzyna.'
+        },
+        {
+          q: 'Sanktuarium słynące z barokowego kościoła i muzyki organowej to…',
+          opts: ['Święta Lipka', 'Gietrzwałd', 'Stoczek Klasztorny', 'Pieniężno'],
+          correct: 0,
+          info: 'Święta Lipka nazywana jest „perłą baroku”.'
+        },
+      ],
+      liczby: [
+        {
+          q: 'Ile pochylni funkcjonuje dziś na Kanale Elbląskim (systemie pochylni)?',
+          opts: ['3', '4', '5', '6'],
+          correct: 2,
+          info: 'Buczyniec, Kąty, Oleśnica, Jelenie, Całuny.
+          '
+        },
+        {
+          q: 'Przybliżona długość Jezioraka wynosi…',
+          opts: ['10 km', '18 km', '27 km', '39 km'],
+          correct: 2,
+          info: 'Jeziorak ma ok. 27,5 km.'
+        },
+        {
+          q: 'Województwo warmińsko‑mazurskie graniczy z zagranicą na odcinku…',
+          opts: ['ok. 10 km', 'ok. 50 km', 'ponad 100 km', 'ponad 200 km'],
+          correct: 3,
+          info: 'Granica z obwodem kaliningradzkim FR przekracza 200 km.'
+        },
+      ],
+      przyroda: [
+        {
+          q: 'Cechą unikalną Kanału Elbląskiego jest to, że statki…',
+          opts: ['płyną po szynach', 'są holowane przez konie', '„jadą po trawie” na platformach', 'używają tylko żagli'],
+          correct: 2,
+          info: 'Dzięki pochylniom statki pokonują różnice wysokości „po trawie”.'
+        },
+        {
+          q: 'Jezioro Łuknajno koło Mikołajek to…',
+          opts: ['rezerwat biosfery UNESCO', 'najgłębsze jezioro w Polsce', 'sztuczny zbiornik', 'morze śródlądowe'],
+          correct: 0,
+          info: 'Rezerwat ptactwa wodnego, Rezerwat Biosfery UNESCO.'
+        },
+        {
+          q: 'Wieś słynąca z bocianów białych to…',
+          opts: ['Żywkowo', 'Nikielkowo', 'Dajtki', 'Bęsia'],
+          correct: 0,
+          info: 'Żywkowo – „bociania stolica Polski”.'
+        },
+      ],
+      miasta: [
+        {
+          q: 'Stolicą województwa warmińsko‑mazurskiego jest…',
+          opts: ['Elbląg', 'Olsztyn', 'Ełk', 'Mrągowo'],
+          correct: 1,
+          info: 'Siedziba władz wojewódzkich znajduje się w Olsztynie.'
+        },
+        {
+          q: 'Słynna bitwa z 1410 r. rozegrała się pod…',
+          opts: ['Tannenbergiem (Stębark/Grunwald)', 'Cedynią', 'Kłuszynem', 'Wiedniem'],
+          correct: 0,
+          info: 'Pola Grunwaldu leżą w dzisiejszym woj. warmińsko‑mazurskim.'
+        },
+        {
+          q: 'Z Mikołajem Kopernikiem najmocniej kojarzony jest…',
+          opts: ['Frombork', 'Pasłęk', 'Iława', 'Bartoszyce'],
+          correct: 0,
+          info: 'We Fromborku Kopernik spędził wiele lat swojej pracy.'
+        },
+      ],
+    };
+
+    /* =============================
+       STAN GRY
+       ============================= */
+    let correct = 0, wrong = 0, round = 1;
+    let spinning = false;
+    let used = {}; // { catKey: Set(indices) }
+
+    const id = s => document.getElementById(s);
+    const els = { wheel: id('wheel'), spin: id('spin'), catTitle: id('catTitle'), question: id('question'), options: id('options'), meta: id('meta'), ok: id('ok'), bad: id('bad'), round: id('round'), cats: id('cats'), win: id('win'), coupon: id('coupon'), copy: id('copy') };
+
+    els.cats.textContent = CATEGORIES.map(c=>c.label).join(' • ');
+
+    /* =============================
+       RYSOWANIE KOŁA (Canvas)
+       ============================= */
+    const ctx = els.wheel.getContext('2d');
+    const colors = ['#5bc0be','#9b59b6','#f1c40f','#e67e22','#3498db'];
+    const slices = CATEGORIES.length;
+    let currentAngle = 0;
+
+    function drawWheel() {
+      const {width} = els.wheel; // canvas width equals height (square)
+      const r = width/2; // radius
+      ctx.clearRect(0,0,width,width);
+      ctx.save();
+      ctx.translate(r,r);
+      const arc = (Math.PI*2)/slices;
+      for(let i=0;i<slices;i++){
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.fillStyle = colors[i%colors.length];
+        ctx.arc(0,0,r-8,arc*i+currentAngle,arc*(i+1)+currentAngle);
+        ctx.lineTo(0,0);
+        ctx.fill();
+        // label
+        ctx.save();
+        ctx.rotate(arc*i + arc/2 + currentAngle);
+        ctx.fillStyle = '#06141b';
+        ctx.font = 'bold 16px system-ui';
+        ctx.textAlign='center';
+        ctx.fillText(CATEGORIES[i].label, (r*0.6), 6);
+        ctx.restore();
+      }
+      ctx.beginPath();
+      ctx.arc(0,0,72,0,Math.PI*2);
+      ctx.fillStyle='#111';
+      ctx.fill();
+      ctx.fillStyle='#d8dee9';
+      ctx.font='800 22px system-ui';
+      ctx.textAlign='center';
+      ctx.fillText('LOSUJ',0,8);
+      ctx.restore();
+    }
+
+    function resizeCanvas(){
+      const size = Math.min(520, document.querySelector('.card').clientWidth - 36);
+      els.wheel.width = size; els.wheel.height = size;
+      drawWheel();
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    /* =============================
+       LOSOWANIE I PYTANIA
+       ============================= */
+    function spinWheel(){
+      if(spinning) return; spinning = true; els.spin.disabled = true; els.options.innerHTML=''; els.meta.textContent='';
+      const arc = (Math.PI*2)/slices;
+      const targetIndex = Math.floor(Math.random()*slices);
+      const targetAngle = (Math.PI*3/2) - (targetIndex*arc + arc/2); // pointer at 12 o'clock
+      const extra = Math.PI*2 * (3 + Math.floor(Math.random()*2)); // 3-4 extra spins
+      const final = targetAngle + extra;
+
+      const start = performance.now();
+      const duration = 3200 + Math.random()*600;
+      const startAngle = currentAngle;
+
+      function anim(t){
+        const p = Math.min(1,(t-start)/duration);
+        // easeOutCubic
+        const e = 1 - Math.pow(1-p,3);
+        currentAngle = startAngle + (final - startAngle)*e;
+        drawWheel();
+        if(p<1) requestAnimationFrame(anim); else {
+          spinning = false; els.spin.disabled = false;
+          const idx = ((Math.round(((Math.PI*3/2 - currentAngle)/arc))%slices)+slices)%slices;
+          const cat = CATEGORIES[idx];
+          showQuestion(cat.key, cat.label);
+        }
+      }
+      requestAnimationFrame(anim);
+    }
+
+    els.spin.addEventListener('click', spinWheel);
+
+    function pickQuestion(catKey){
+      if(!used[catKey]) used[catKey] = new Set();
+      const pool = QUESTION_BANK[catKey];
+      const available = [];
+      for(let i=0;i<pool.length;i++) if(!used[catKey].has(i)) available.push(i);
+      if(available.length===0){
+        used[catKey] = new Set();
+        for(let i=0;i<pool.length;i++) available.push(i);
+      }
+      const pick = available[Math.floor(Math.random()*available.length)];
+      used[catKey].add(pick);
+      return { index: pick, data: pool[pick] };
+    }
+
+    function showQuestion(catKey, label){
+      const {data} = pickQuestion(catKey);
+      els.catTitle.textContent = `Kategoria: ${label}`;
+      els.question.textContent = data.q;
+      els.options.innerHTML = '';
+      els.meta.textContent = '';
+
+      data.opts.forEach((text, i)=>{
+        const btn = document.createElement('button');
+        btn.className = 'opt';
+        btn.textContent = text;
+        btn.onclick = ()=> checkAnswer(i === data.correct, data.info, btn);
+        els.options.appendChild(btn);
+      });
+    }
+
+    function checkAnswer(isCorrect, info, clicked){
+      // lock options
+      [...els.options.children].forEach(b=>b.disabled=true);
+      if(isCorrect){
+        clicked.classList.add('correct');
+        correct++; els.ok.textContent = correct;
+      } else {
+        clicked.classList.add('wrong');
+        wrong++; els.bad.textContent = wrong;
+      }
+      els.meta.textContent = info || '';
+      if(correct>=3){
+        revealPrize();
+      } else {
+        round++; els.round.textContent = round;
+      }
+    }
+
+    function revealPrize(){
+      const code = 'WM-' + Date.now().toString(36).toUpperCase().slice(-6);
+      els.coupon.textContent = code;
+      els.win.style.display = 'block';
+      els.spin.disabled = true;
+    }
+
+    els.copy.addEventListener('click', ()=>{
+      const text = els.coupon.textContent;
+      navigator.clipboard.writeText(text).then(()=>{
+        els.copy.textContent = 'Skopiowano!';
+        setTimeout(()=> els.copy.textContent = 'Kopiuj kod', 1400);
+      });
+    });
+  </script>
+</body>
+</html>
